@@ -1,2 +1,2 @@
 # Frequencia_ZScore_Institucional
-Indicador Z-Score Institucional para MetaTrader 5 desenvolvido pela Frequência do Mercado.
+Indicador Z-Score Institucional para MetaTrader 5 baseado na metodologia de Reversão à Média. Utiliza EMA e análise estatística para medir o afastamento do preço em relação à sua média, auxiliando na identificação de possíveis oportunidades de reversão.
