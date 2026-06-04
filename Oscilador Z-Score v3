@@ -1,0 +1,153 @@
+//+------------------------------------------------------------------+
+//|                            EDUCACIONAL                           |
+//|                 Oscilador Z-Score de Reversão à Média v3         |
+//|                 Auto: Diego Vinicius Righetti Sá                 |
+//|                 Site: https://frequenciadomercado.com.br         |
+//+------------------------------------------------------------------+
+#property copyright "Diego Vinicius Righetti Sá | Frequência do Mercado"
+#property link      "https://frequenciadomercado.com.br"
+#property version   "3.00"
+#property description "ZScore Oscilador"
+#property description "Oscilador Z-Score de Reversão à Média v3 ."
+
+#property indicator_separate_window
+#property indicator_buffers 5
+#property indicator_plots   2
+
+//--- Plot 1: Histograma com Cores Dinâmicas
+#property indicator_label1  "ZScore Histograma"
+#property indicator_type1   DRAW_COLOR_HISTOGRAM
+#property indicator_style1  STYLE_SOLID
+#property indicator_width1  3
+
+//--- Plot 2: Linha de Contorno
+#property indicator_label2  "ZScore Linha"
+#property indicator_type2   DRAW_LINE
+#property indicator_color2  clrWhite
+#property indicator_style2  STYLE_SOLID
+#property indicator_width2  1
+
+//============================================================
+//  INPUTS
+//============================================================
+input group "=== Configurações Matemáticas ==="
+input ENUM_TIMEFRAMES InpTimeFrame   = PERIOD_CURRENT;  // Timeframe
+input int             InpPeriodoMM   = 200;              // Período da MME
+input int             InpPeriodoZ    = 200;              // Período do ZScore
+
+input group "=== Níveis de Alerta ==="
+input double InpExtremoPos  =  2.5;   // Extremo de Venda (2.5 )
+input double InpExtremoNeg  = -2.5;   // Extremo de Compra (-2.5)
+input double InpAlertaPos   =  1.5;   // Alerta de Venda
+input double InpAlertaNeg   = -1.5;   // Alerta de Compra
+
+input group "=== Estética Premium ==="
+input color InpCorVendaExt  = clrRed;         // Cor Venda Extrema
+input color InpCorVenda     = clrOrangeRed;   // Cor Venda Moderada
+input color InpCorNeutro    = clrGray;         // Cor Neutra
+input color InpCorCompra    = clrSpringGreen; // Cor Compra Moderada
+input color InpCorCompraExt = clrLime;        // Cor Compra Extrema
+
+//============================================================
+//  BUFFERS
+//============================================================
+double BufferZ[];       // Valores do ZScore
+double BufferColors[];  // Índices de cores para o histograma
+double BufferLine[];    // Linha de contorno
+double BufferMME[];     // Buffer oculto para cálculo
+double BufferDP[];      // Buffer oculto para desvio padrão
+
+int handleMM;
+
+//+------------------------------------------------------------------+
+//| OnInit                                                           |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   // Associa os buffers
+   SetIndexBuffer(0, BufferZ,      INDICATOR_DATA);
+   SetIndexBuffer(1, BufferColors, INDICATOR_COLOR_INDEX);
+   SetIndexBuffer(2, BufferLine,   INDICATOR_DATA);
+   SetIndexBuffer(3, BufferMME,    INDICATOR_CALCULATIONS);
+   SetIndexBuffer(4, BufferDP,     INDICATOR_CALCULATIONS);
+
+   // Configura as 5 cores do histograma dinâmico
+   PlotIndexSetInteger(0, PLOT_COLOR_INDEXES, 5);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, InpCorCompraExt);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, InpCorCompra);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 2, InpCorNeutro);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 3, InpCorVenda);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 4, InpCorVendaExt);
+
+   IndicatorSetString(INDICATOR_SHORTNAME, "ZScore Premium ("+IntegerToString(InpPeriodoMM)+")");
+   IndicatorSetInteger(INDICATOR_DIGITS, 2);
+
+   // Níveis horizontais fixos
+   IndicatorSetInteger(INDICATOR_LEVELS, 3);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpExtremoPos);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, 0.0);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 2, InpExtremoNeg);
+   IndicatorSetInteger(INDICATOR_LEVELCOLOR, clrDimGray);
+   IndicatorSetInteger(INDICATOR_LEVELSTYLE, STYLE_DOT);
+
+   handleMM = iMA(_Symbol, InpTimeFrame, InpPeriodoMM, 0, MODE_EMA, PRICE_CLOSE);
+   if(handleMM == INVALID_HANDLE) return INIT_FAILED;
+
+   return INIT_SUCCEEDED;
+}
+
+//+------------------------------------------------------------------+
+//| OnCalculate                                                      |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
+{
+   int lookback = MathMax(InpPeriodoMM, InpPeriodoZ);
+   if(rates_total < lookback) return 0;
+
+   int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+   
+   if(CopyBuffer(handleMM, 0, 0, rates_total, BufferMME) <= 0) return 0;
+
+   for(int i = start; i < rates_total; i++)
+   {
+      if(i < InpPeriodoZ) 
+      {
+         BufferZ[i] = 0;
+         BufferColors[i] = 2;
+         BufferLine[i] = 0;
+         continue;
+      }
+
+      // MATEMÁTICA IDÊNTICA AO ROBÔ
+      double soma = 0;
+      for(int j = 0; j < InpPeriodoZ; j++)
+      {
+         double diff = close[i-j] - BufferMME[i-j];
+         soma += diff * diff;
+      }
+      
+      double dp = MathSqrt(soma / InpPeriodoZ);
+      double z = (dp > 0) ? (close[i] - BufferMME[i]) / dp : 0;
+
+      BufferZ[i] = z;
+      BufferLine[i] = z;
+
+      // LÓGICA DE CORES PREMIUM
+      if(z <= InpExtremoNeg)      BufferColors[i] = 0; // Compra Extrema
+      else if(z <= InpAlertaNeg)  BufferColors[i] = 1; // Compra Moderada
+      else if(z >= InpExtremoPos) BufferColors[i] = 4; // Venda Extrema
+      else if(z >= InpAlertaPos)  BufferColors[i] = 3; // Venda Moderada
+      else                        BufferColors[i] = 2; // Neutro
+   }
+
+   return rates_total;
+}
